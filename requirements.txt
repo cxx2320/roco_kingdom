@@ -1,0 +1,20 @@
+# === 图像识别相关 ===
+opencv-python>=4.8.0
+numpy>=1.24.0
+pytesseract>=0.3.10
+
+# === 输入模拟（内核级）===
+interception-python>=1.13.0
+pyautogui>=0.9.54
+pynput>=1.7.6
+pywin32>=306
+
+# === GUI 框架 ===
+PyQt5>=5.15.9
+
+# === 工具类 ===
+Pillow>=10.0.0
+loguru>=0.7.0
+
+# === 打包 ===
+pyinstaller>=5.13.0

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "proactive-self-improving-agent": {
+      "source": "yanhongxi-openclaw/proactive-self-improving-agent",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "853ec1a6838f3b29ee7b8249b147d7d4949ef56688155f331da99c6c596aa3f0"
+    },
+    "self-improving-agent": {
+      "source": "charon-fan/agent-playbook",
+      "sourceType": "github",
+      "skillPath": "skills/self-improving-agent/SKILL.md",
+      "computedHash": "ba254b84a2e9776becefa95278da47df4bba1d3141e0130e45f405c19eb7a269"
+    }
+  }
+}
