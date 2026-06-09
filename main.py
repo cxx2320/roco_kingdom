@@ -57,10 +57,6 @@ def run_gui():
 
 def run_cli():
     """纯命令行模式启动"""
-    from bot.strategy import BotRunner
-    bot = BotRunner()
-    bot.start()
-
 
 if __name__ == "__main__":
     import argparse

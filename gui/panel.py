@@ -8,11 +8,11 @@ import threading
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QTextEdit, QSpinBox, QGroupBox, QFormLayout,
+    QPushButton, QLabel, QTextEdit, QGroupBox,
     QShortcut
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt5.QtGui import QFont, QKeySequence
+from PyQt5.QtGui import QFont, QKeySequence, QPainter, QColor, QPen, QPixmap, QPainterPath
 
 # 项目根路径处理
 import os
@@ -30,14 +30,133 @@ class BotSignals(QObject):
     """用于线程间安全通信的信号"""
     log = pyqtSignal(str)
     status_changed = pyqtSignal(str)
-    stats_updated = pyqtSignal(int, float)
+
+
+class MiniMap(QWidget):
+    """小地图组件，显示游戏窗口小地图实时截图"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(300, 300)
+        self._pixmap: QPixmap | None = None
+        self._player_pos = None  # (x, y) 相对百分比坐标
+
+    def set_image(self, pixmap: QPixmap):
+        """更新小地图截图"""
+        self._pixmap = pixmap
+        self.update()
+
+    def set_player_pos(self, x_pct: float, y_pct: float):
+        """设置玩家位置（百分比坐标，0.0~1.0）"""
+        self._player_pos = (x_pct, y_pct)
+        self.update()
+
+    def clear_position(self):
+        """清除玩家位置"""
+        self._player_pos = None
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        w, h = self.width(), self.height()
+
+        # 背景
+        painter.fillRect(0, 0, w, h, QColor(26, 26, 46))
+
+        # 圆形区域（取正方形内切圆，留 4px 边距给边框）
+        diameter = min(w, h) - 4
+        cx = (w - diameter) // 2
+        cy = (h - diameter) // 2
+
+        if self._pixmap and not self._pixmap.isNull():
+            # 拉伸填充正方形（截取区域已是正方形，无变形）
+            scaled = self._pixmap.scaled(
+                diameter, diameter, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+            )
+
+            # 圆形裁剪绘制
+            painter.save()
+            clip_path = QPainterPath()
+            clip_path.addEllipse(cx, cy, diameter, diameter)
+            painter.setClipPath(clip_path)
+            painter.drawPixmap(cx, cy, scaled)
+            painter.restore()
+
+            # 辅助线（在截图之上叠加）
+            painter.save()
+            painter.setClipPath(clip_path)
+            self._draw_guide_lines(painter, cx, cy, diameter)
+            painter.restore()
+        else:
+            painter.setPen(QColor(100, 100, 120))
+            font = painter.font()
+            font.setPointSize(10)
+            painter.setFont(font)
+            painter.drawText(0, 0, w, h, Qt.AlignCenter, "等待游戏窗口…")
+
+        # 圆形边框
+        painter.setPen(QPen(QColor(80, 80, 100), 1.5))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(cx, cy, diameter, diameter)
+
+        # 玩家位置（红点叠加）
+        if self._player_pos is not None:
+            px = int(self._player_pos[0] * w)
+            py = int(self._player_pos[1] * h)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 50, 50, 80))
+            painter.drawEllipse(px - 8, py - 8, 16, 16)
+            painter.setBrush(QColor(255, 60, 60))
+            painter.drawEllipse(px - 4, py - 4, 8, 8)
+            painter.setBrush(QColor(255, 180, 180))
+            painter.drawEllipse(px - 1, py - 1, 2, 2)
+
+        painter.end()
+
+    def _draw_guide_lines(self, painter: QPainter, cx: int, cy: int, diameter: int):
+        """绘制圆形小地图上的方向辅助线（十字线 + 对角线 + 方位标注）"""
+        r = diameter / 2
+        center_x = cx + r
+        center_y = cy + r
+        margin = r * 0.08  # 标注距边缘的距离
+
+        # 十字线（半透明白）
+        pen = QPen(QColor(255, 255, 255, 35), 0.8)
+        painter.setPen(pen)
+        painter.drawLine(int(center_x), cy, int(center_x), cy + diameter)
+        painter.drawLine(cx, int(center_y), cx + diameter, int(center_y))
+
+        # 对角线（更淡）
+        pen = QPen(QColor(255, 255, 255, 20), 0.6)
+        pen.setStyle(Qt.DashLine)
+        painter.setPen(pen)
+        d45 = r * 0.707  # sin(45°) * r
+        painter.drawLine(int(center_x - d45), int(center_y - d45),
+                         int(center_x + d45), int(center_y + d45))
+        painter.drawLine(int(center_x - d45), int(center_y + d45),
+                         int(center_x + d45), int(center_y - d45))
+
+        # 方位标注
+        font = painter.font()
+        font.setPointSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 100))
+
+        # N S W E
+        painter.drawText(int(center_x - 6), cy + int(margin), "N")
+        painter.drawText(int(center_x - 6), cy + diameter - int(margin) + 8, "S")
+        painter.drawText(cx + int(margin) - 4, int(center_y) + 4, "W")
+        painter.drawText(cx + diameter - int(margin) - 6, int(center_y) + 4, "E")
 
 
 class ControlPanel(QMainWindow):
     """洛克王国助手 - 控制面板"""
 
     WINDOW_TITLE = "洛克王国助手"
-    WINDOW_SIZE = (420, 570)
+    WINDOW_SIZE = (420, 700)
 
     def __init__(self):
         super().__init__()
@@ -96,13 +215,6 @@ class ControlPanel(QMainWindow):
                 font-family: Consolas, monospace;
                 font-size: 12px;
             }
-            QSpinBox {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                border: 1px solid #555;
-                border-radius: 3px;
-                padding: 4px;
-            }
         """)
 
         central = QWidget()
@@ -146,31 +258,22 @@ class ControlPanel(QMainWindow):
         layout.addLayout(btn_layout2)
         layout.addLayout(btn_layout)
 
-        # === 统计信息 ===
-        stats_group = QGroupBox("📊 运行统计")
-        stats_form = QFormLayout(stats_group)
-        self.lbl_battles = QLabel("0 次")
-        self.lbl_runtime = QLabel("00:00")
-        stats_form.addRow("战斗次数:", self.lbl_battles)
-        stats_form.addRow("运行时间:", self.lbl_runtime)
-        layout.addWidget(stats_group)
+        # === 小地图 ===
+        minimap_group = QGroupBox("🗺️ 小地图")
+        minimap_layout = QVBoxLayout(minimap_group)
+        self.minimap = MiniMap()
+        minimap_layout.addWidget(self.minimap)
+        layout.addWidget(minimap_group)
 
-        # === 设置 ===
-        settings_group = QGroupBox("⚙️ 设置")
-        settings_form = QFormLayout(settings_group)
-        self.spin_interval = QSpinBox()
-        self.spin_interval.setRange(100, 5000)
-        self.spin_interval.setValue(500)
-        self.spin_interval.setSuffix(" ms")
-        settings_form.addRow("操作间隔:", self.spin_interval)
-        layout.addWidget(settings_group)
+        # 启动小地图实时截图
+        self._start_minimap_capture()
 
         # === 日志输出 ===
         log_group = QGroupBox("📋 运行日志")
         log_layout = QVBoxLayout(log_group)
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
-        self.log_area.setMaximumHeight(150)
+        self.log_area.setMaximumHeight(220)
         log_layout.addWidget(self.log_area)
         layout.addWidget(log_group)
 
@@ -201,7 +304,6 @@ class ControlPanel(QMainWindow):
 
         self.signals.log.connect(self._append_log)
         self.signals.status_changed.connect(self._update_status)
-        self.signals.stats_updated.connect(self._update_stats)
 
         # 全局快捷键
         QShortcut(QKeySequence("F6"), self).activated.connect(self._on_pause)
@@ -210,10 +312,57 @@ class ControlPanel(QMainWindow):
         QShortcut(QKeySequence("F9"), self).activated.connect(self._on_test)
         QShortcut(QKeySequence("F10"), self).activated.connect(self._on_picker)
 
-        # 定时刷新统计
-        self._timer = QTimer()
-        self._timer.timeout.connect(self._refresh_stats)
-        self._timer.start(1000)
+    # === 小地图实时截图 ===
+
+    def _start_minimap_capture(self):
+        """启动小地图定时截图"""
+        from bot.shade import MINI_MAP_COORDS
+        from bot.input import GameWindow
+
+        # 计算小地图圆心和直径，截取正方形区域（确保与圆形裁剪完美对齐）
+        xs = [p[0] for p in MINI_MAP_COORDS]
+        ys = [p[1] for p in MINI_MAP_COORDS]
+        center_x = (min(xs) + max(xs)) // 2
+        center_y = (min(ys) + max(ys)) // 2
+        size = max(max(xs) - min(xs), max(ys) - min(ys)) - 5  # 游戏地图外扩 5px
+        # 正方形截取区域 (left, top, width, height)
+        self._minimap_rect = (
+            center_x - size // 2,
+            center_y - size // 2,
+            size,
+            size,
+        )
+
+        self._minimap_window = GameWindow()
+        self._minimap_frame = 0  # 帧计数，用于降频更新客户区
+        self._minimap_timer = QTimer()
+        self._minimap_timer.timeout.connect(self._capture_minimap)
+        self._minimap_timer.start(25)  # 每 25ms 刷新 (~40 FPS)
+
+    def _capture_minimap(self):
+        """截取游戏窗口小地图区域（Qt 原生截屏，零拷贝）"""
+        try:
+            # 找窗口（缓存：只有 hwnd 失效才重新查找）
+            if not self._minimap_window.is_valid():
+                if not self._minimap_window.find():
+                    return
+
+            # 每 30 帧更新一次客户区坐标（降低 Win32 API 开销）
+            self._minimap_frame += 1
+            if self._minimap_frame % 30 == 0:
+                self._minimap_window._update_client_region()
+
+            rx, ry, rw, rh = self._minimap_rect
+            sx, sy = self._minimap_window.client_to_screen(rx, ry)
+
+            # Qt 原生屏幕抓取 → 直接得到 QPixmap（无 PIL/numpy 中间层）
+            screen = QApplication.primaryScreen()
+            if screen:
+                pixmap = screen.grabWindow(0, sx, sy, rw, rh)
+                self.minimap.set_image(pixmap)
+
+        except Exception:
+            pass
 
     # === 按钮事件 ===
 
@@ -361,18 +510,6 @@ class ControlPanel(QMainWindow):
 
     def _update_status(self, status: str):
         self.lbl_status.setText(status)
-
-    def _update_stats(self, battles: int, runtime: float):
-        self.lbl_battles.setText(f"{battles} 次")
-        mins, secs = divmod(int(runtime), 60)
-        self.lbl_runtime.setText(f"{mins:02d}:{secs:02d}")
-
-    def _refresh_stats(self):
-        if self.bot_runner and hasattr(self.bot_runner, 'ctx'):
-            import time
-            elapsed = time.time() - self.bot_runner.ctx.start_time if self.bot_runner.ctx.start_time else 0
-            self._update_stats(self.bot_runner.ctx.battle_count, elapsed)
-
 
 def main():
     app = QApplication(sys.argv)
